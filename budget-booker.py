@@ -1,4 +1,7 @@
 import requests
+from datetime import datetime
+from datetime import timedelta
+import argparse
 
 
 URL="https://www.budget.ie/api/rest/v2/booking/quote"
@@ -10,82 +13,110 @@ def quote_book(init, end):
     data = {"pickupLocation":"KA","returnLocation":"KA","pickupDatetime":"20180819T1830","returnDatetime":"20180831T1830","cdw":"I","discount":"","currency":"EUR","key":""}
     data["pickupDatetime"] = init
     data["returnDatetime"] = end
-    
+
+    #print("data ", data)
     response = requests.post(URL, json  =data)
     #print(response.text)
 #    print(response.content)
-    rate = response.json()["data"]["Rates"]["MDMN"]
+
+    try:
+        rate = response.json()["data"]["Rates"]["MDMN"]
+
 #    print(rate)
+    except KeyError:
+        #print("No rate found")
+        rate = "99999"
+    except:
+        rate = "88888"
+        print("ERROR")
 
     if rate[-1] == '0':
         rate = rate[0:-1]
     return float(rate)
-    
 
 
-hour_init = "1830"
-date_init = [11,28]
-date_end = [12,24]
+def eval_range(init,end):
+    init_str = init.strftime("%Y%m%dT%H%M")
+    end_str = end.strftime("%Y%m%dT%H%M")
+    #print("EVALUATING %s - %s" % (init_str, end_str))
+    rate = quote_book(init_str, end_str)
+    return rate
+
+def main():
+
+    ap = argparse.ArgumentParser()
+
+    ap.add_argument("-init")
+    ap.add_argument("-end")
+    ap.add_argument("-init_time",default="18:30")
+    ap.add_argument("-end_time",default="18:30")
+
+    args = ap.parse_args()
+
+    date_init = datetime.strptime(args.init + " " + args.init_time, "%Y-%m-%d %H:%M")
+    date_end = datetime.strptime(args.end + " " + args.end_time, "%Y-%m-%d %H:%M")
+
+    total = date_end - date_init
+
+    one_day = timedelta(days=1)
+
+    print("Total days %s" % (total.days))
+
+    date_mid = date_init + one_day
+
+    whole = eval_range(date_init, date_end)
+    ppdw = whole / total.days
+
+    best_rate = ppdw
+    best_rate_str = "Whole: %s €, %4.2f @ day" % (whole, ppdw)
+
+    print(best_rate_str)
+
+    curr_delta = date_mid - date_init
+
+    end_delta = date_end - date_mid
+
+    date_init_str = date_init.strftime("%Y-%m-%d %H:%M")
+    date_end_str = date_end.strftime("%Y-%m-%d %H:%M")
+
+    header_str="%16s\t%16s\t%16s\t" % ("Pickup date","Renew date", "Return date")
+    header_str += "Total Price\t Par.rates\t Eq.Rate"
+
+    print(header_str)
+
+    while end_delta.days > 0:
+
+        curr_delta = date_mid - date_init
+        #print(date_mid)
+
+        rate1 = eval_range(date_init, date_mid)
+        rate2 = eval_range(date_mid, date_end)
+
+        date_mid_str = date_mid.strftime("%Y-%m-%d %H:%M")
+
+        if rate1 < 5000:
+            curr_rate = (rate1+rate2)/total.days
+            curr_str = ("%s\t%s\t%s\t%s+%s=%s €, (%4.2f,%4.2f)@day\t%4.2f@day" %
+            (date_init_str, date_mid_str, date_end_str, rate2,
+            rate2, rate1+rate2, rate1/curr_delta.days, rate2/(total.days-curr_delta.days),
+            curr_rate))
+        else:
+            curr_str = ("%s\t%s\t%s\t0+0=0€, (0,0)@day\t0@day" %
+            (date_init_str, date_mid_str, date_end_str))
+
+        print(curr_str)
+
+        date_mid += one_day
+        end_delta = date_end - date_mid
+
+        if (best_rate > curr_rate):
+            best_rate = curr_rate
+            best_rate_str = curr_str
+
+    print("BEST RATE: € %4.2f @ day" % best_rate)
+    print(best_rate_str)
 
 
-days = 1
 
-best_opt = {"dates": "", "price_per_day": 0, "total_price": 99999999 }
-
-
-curr_date = date_init[:]
-#for i in range(date_init, date_end):
-while curr_date != date_end:
-
-    if curr_date == date_init:
-        date_init_str = "2018%02d%02dT1830" % (curr_date[0],curr_date[1])
-        date_end_str = "2018%02d%02dT1830" % (date_end[0],date_end[1])
-
-        rate = quote_book(date_init_str, date_end_str)
-        ppd = rate/days
-
-        dates = "(a){0}-{1}".format(date_init, date_end)
-        rate_str= rate
-    else:
-        date_init_str = "2018%02d%02dT1830" % (date_init[0],date_init[1])
-        date_end_str = "2018%02d%02dT1830" % (curr_date[0],curr_date[1])
-
-        rate1 = quote_book(date_init_str, date_end_str)
-
-
-        date_init_str = "2018%02d%02dT1830" % (curr_date[0],curr_date[1])
-        date_end_str = "2018%02d%02dT1830" % (date_end[0],date_end[1])
-        rate2 = quote_book(date_init_str, date_end_str)
-
-        rate = rate1 + rate2
-        ppd = rate1/days
-        dates = "(b){0}-{1}/{2}-{3}".format(date_init,curr_date,curr_date, date_end)
-        rate_str = "{0}+{1}={2}".format(rate1, rate2, rate)
-        days += 1
-    print ("{0} = {1}, {2} ppd* €/d".format(dates, rate_str, ppd))     
-
-    if curr_date[0] == 8 and curr_date[1] == 31:
-        curr_date[0] = 9
-        curr_date[1] = 1
-    elif curr_date[0] == 9 and curr_date[1] == 30:
-        curr_date[0] = 10
-        curr_date[1] = 1
-    elif curr_date[0] == 10 and curr_date[1] == 31:
-        curr_date[0] = 11
-        curr_date[1] = 1
-    elif curr_date[0] == 11 and curr_date[1] == 30:
-        curr_date[0] = 12
-        curr_date[1] = 1
-    else:
-        curr_date[1] += 1
-
-    #days += 1
-        
-    if rate < best_opt["total_price"]:
-        best_opt["total_price"] = rate
-        best_opt["dates"] = dates
-        #best_opt["price_per_day"] = ppd
-
-print(best_opt)
-
-
+if __name__ == "__main__":
+    main()
